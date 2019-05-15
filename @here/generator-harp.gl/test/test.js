@@ -16,7 +16,7 @@ const {
     USE_NPMRC=~/.npmrc npx mocha
 
 */
-describe("harp.gl:app", function () {
+describe.skip("harp.gl:app", function () {
 
     this.timeout(300000);
 

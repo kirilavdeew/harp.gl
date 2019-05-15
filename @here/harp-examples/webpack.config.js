@@ -52,12 +52,13 @@ const commonConfig = {
                 loader: "ts-loader",
                 exclude: /node_modules/,
                 options: {
-                    configFile: path.join(process.cwd(), "tsconfig.json"),
+                    onlyCompileBundledFiles: true,
+                    projectReferences: true,
+                    configFile: path.join(__dirname, "tsconfig-build.json"),
                     onlyCompileBundledFiles: true,
                     transpileOnly: prepareOnly,
                     compilerOptions: {
-                        sourceMap: !prepareOnly,
-                        declaration: false
+                        sourceMap: !prepareOnly
                     }
                 }
             }

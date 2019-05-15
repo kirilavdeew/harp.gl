@@ -18,7 +18,7 @@ declare const global: any;
 
 const inNodeContext = typeof window === "undefined";
 
-describe("MapControls", function() {
+describe.only("MapControls", function() {
     let sandbox: sinon.SinonSandbox;
 
     beforeEach(function() {
