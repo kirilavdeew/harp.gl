@@ -26,6 +26,7 @@ import {
     isSegmentsTechnique,
     isSolidLineTechnique,
     isSquaresTechnique,
+    isStandardTechnique,
     isTerrainTechnique,
     isTextTechnique,
     LineMarkerTechnique,
@@ -866,6 +867,15 @@ export class TileGeometryCreator {
                 this.addFeatureData(srcGeometry, technique, object);
                 this.addGeometryObjInfos(tile, srcGeometry, technique, object);
 
+                // FIXME: Check if receiveShadow has an performance impact if there is no light
+                // source that casts shadows.
+                if (isExtrudedPolygonTechnique(technique)) {
+                    object.castShadow = true;
+                    object.receiveShadow = true;
+                } else if (isStandardTechnique(technique)) {
+                    object.receiveShadow = true;
+                }
+
                 if (isExtrudedPolygonTechnique(technique) || isFillTechnique(technique)) {
                     // filled polygons are normal meshes, and need transparency only when fading or
                     // dynamic properties is defined.
@@ -1509,12 +1519,14 @@ export class TileGeometryCreator {
     ): THREE.Mesh {
         const geometry = new THREE.PlaneGeometry(width, height, 1);
         // TODO cache the material HARP-4207
-        const material = new MapMeshBasicMaterial({
+        const material = new MapMeshStandardMaterial({
             color: colorHex,
             visible: isVisible,
             depthWrite: false
         });
         const plane = new THREE.Mesh(geometry, material);
+        plane.receiveShadow = true;
+        plane.castShadow = false;
         plane.position.copy(planeCenter);
         // Render before everything else
         plane.renderOrder = Number.MIN_SAFE_INTEGER;
