@@ -26,6 +26,7 @@ import {
 } from "@here/harp-utils";
 import * as THREE from "three";
 
+import { Projection } from "@here/harp-geoutils";
 import { DataSource } from "../DataSource";
 import { debugContext } from "../DebugContext";
 import { MapView } from "../MapView";
@@ -35,6 +36,7 @@ import { IBox, LineWithBound, ScreenCollisions } from "../ScreenCollisions";
 import { ScreenProjector } from "../ScreenProjector";
 import { Tile } from "../Tile";
 import { MapViewUtils } from "../Utils";
+import { DataSourceTileList } from "../VisibleTileSet";
 import { checkReadyForPlacement, computeViewDistance, getMaxViewDistance } from "./Placement";
 import { PlacementStats } from "./PlacementStats";
 import { FadingState, RenderState } from "./RenderState";
@@ -51,19 +53,17 @@ import { TextElementState } from "./TextElementState";
 import { TextElementStateCache } from "./TextElementStateCache";
 import { DEFAULT_FONT_CATALOG_NAME, TextStyleCache } from "./TextStyleCache";
 import { UpdateStats } from "./UpdateStats";
+import { ViewState } from "./ViewState";
 
 const MAX_INITIALIZED_TEXT_ELEMENTS_PER_FRAME = Infinity;
 
-interface MapViewState {
-    cameraIsMoving: boolean;
-    maxVisibilityDist: number;
-    zoomLevel: number;
-    frameNumber: number;
-    time: number;
+interface RenderParams {
     numRenderedTextElements: number;
     // TODO: HARP-7373. Move to update() method at the end of the frame.
     fadeAnimationRunning: boolean;
+    time: number;
 }
+
 interface TempParams {
     additionParams: AdditionParameters;
     poiMeasurementParams: MeasurementParameters;
@@ -165,6 +165,21 @@ enum InitState {
     Initialized
 }
 
+function checkIfTextElementsChanged(dataSourceTileList: DataSourceTileList[]) {
+    let textElementsChanged = false;
+
+    dataSourceTileList.forEach(({ renderedTiles }) => {
+        renderedTiles.forEach(tile => {
+            if (tile.textElementsChanged) {
+                tile.textElementsChanged = false;
+                textElementsChanged = true;
+            }
+        });
+    });
+
+    return textElementsChanged;
+}
+
 export type ViewUpdateCallback = () => void;
 
 function isPlacementTimeExceeded(startTime: number | undefined): boolean {
@@ -213,6 +228,8 @@ export class TextElementsRenderer {
      * [[TextElement]]s every frame.
      *
      * @param m_mapView MapView to render into
+     * @param m_viewState State of the view for which this renderer will draw text.
+     * @param m_renderer The THREE.js `WebGLRenderer` used by the text renderer.
      * @param m_viewUpdateCallback To be called whenever the view needs to be updated.
      * @param m_screenCollisions General 2D screen occlusion management, may be shared between
      *     instances.
@@ -223,6 +240,8 @@ export class TextElementsRenderer {
      */
     constructor(
         private m_mapView: MapView,
+        private m_viewState: ViewState,
+        private m_renderer: THREE.WebGLRenderer,
         private m_viewUpdateCallback: ViewUpdateCallback,
         private m_screenCollisions: ScreenCollisions,
         private m_screenProjector: ScreenProjector,
@@ -306,19 +325,20 @@ export class TextElementsRenderer {
 
     /**
      * Places text elements for the current frame.
-     * @param tileTextElementsChanged Indicates whether there's been any change in the text elements
-     * to place since the last call to this method (last frame).
+     * @param dataSourceTileList List of tiles to be rendered for each data source.
+     * @param projection The view's projection.
+     * @param time Current frame time.
      * @param tilesChanged Indicates whether there's been any change in the tiles rendered since the
      * last call to this method (last frame).
-     * @param time Current frame time.
-     * @param frameNumber Current frame number.
      */
     placeText(
-        tileTextElementsChanged: boolean,
-        tilesChanged: boolean,
+        dataSourceTileList: DataSourceTileList[],
+        projection: Projection,
         time: number,
-        frameNumber: number
+        tilesChanged: boolean
     ) {
+        const tileTextElementsChanged = checkIfTextElementsChanged(dataSourceTileList);
+
         if (!this.initialize(tileTextElementsChanged)) {
             return;
         }
@@ -327,19 +347,23 @@ export class TextElementsRenderer {
             this.m_cacheInvalidated || tileTextElementsChanged || tilesChanged;
 
         logger.debug(
-            `FRAME: ${this.m_mapView.frameNumber}, ZOOM LEVEL: ${this.m_mapView.zoomLevel}`
+            `FRAME: ${this.m_viewState.frameNumber}, ZOOM LEVEL: ${this.m_viewState.zoomLevel}`
         );
 
         const clearVisitedGroups = updateTextElements;
-        this.m_textElementStateCache.update(time, clearVisitedGroups, this.m_mapView.disableFading);
+        this.m_textElementStateCache.update(
+            time,
+            clearVisitedGroups,
+            this.m_options.disableFading!
+        );
 
         if (updateTextElements) {
-            this.updateTextElements();
+            this.updateTextElements(dataSourceTileList, projection);
         }
 
         this.reset();
-        this.prepopulateScreenWithBlockingElements();
-        this.placeTextElements(time, frameNumber);
+        this.prepopulateScreenWithBlockingElements(dataSourceTileList);
+        this.placeTextElements(time);
         this.placeOverlayTextElements();
         this.updateTextRenderers();
     }
@@ -526,11 +550,11 @@ export class TextElementsRenderer {
     /**
      * Fills the screen with lines projected from world space, see [[Tile.blockingElements]].
      * @note These boxes have highest priority, so will block all other labels.
+     * @param dataSourceTileList List of tiles to be rendered for each data source.
      */
-    private prepopulateScreenWithBlockingElements() {
-        const renderList = this.m_mapView.visibleTileSet.dataSourceTileList;
+    private prepopulateScreenWithBlockingElements(dataSourceTileList: DataSourceTileList[]) {
         const boxes: IBox[] = [];
-        renderList.forEach(renderListEntry => {
+        dataSourceTileList.forEach(renderListEntry => {
             const startLinePointProj = new THREE.Vector3();
             const endLinePointProj = new THREE.Vector3();
             for (const tile of renderListEntry.visibleTiles) {
@@ -569,7 +593,7 @@ export class TextElementsRenderer {
 
     private placeTextElementGroup(
         groupState: TextElementGroupState,
-        mapViewState: MapViewState,
+        renderParams: RenderParams,
         maxNumPlacedLabels: number,
         pass: Pass
     ) {
@@ -579,7 +603,7 @@ export class TextElementsRenderer {
         }
 
         const textElementStates = groupState.sortedTextElementStates(
-            this.m_mapView.viewRanges.maximum
+            this.m_viewState.maxVisibilityDist
         );
 
         const shieldGroups: number[][] = [];
@@ -590,9 +614,7 @@ export class TextElementsRenderer {
             measurementParams: {},
             bufferAdditionParams: {}
         };
-        const tileGeometryManager = this.m_mapView.tileGeometryManager;
-        const hiddenKinds =
-            tileGeometryManager !== undefined ? tileGeometryManager.hiddenGeometryKinds : undefined;
+        const hiddenKinds = this.m_viewState.hiddenGeometryKinds;
 
         for (const textElementState of textElementStates) {
             if (pass === Pass.PersistentLabels) {
@@ -602,7 +624,7 @@ export class TextElementsRenderer {
             }
             if (
                 maxNumPlacedLabels >= 0 &&
-                mapViewState.numRenderedTextElements >= maxNumPlacedLabels
+                renderParams.numRenderedTextElements >= maxNumPlacedLabels
             ) {
                 logger.debug("Placement label limit exceeded.");
                 break;
@@ -753,7 +775,7 @@ export class TextElementsRenderer {
                     groupState,
                     poiRenderer,
                     textCanvas,
-                    mapViewState,
+                    renderParams,
                     temp
                 );
             }
@@ -765,7 +787,7 @@ export class TextElementsRenderer {
                     poiRenderer,
                     shieldGroups,
                     textCanvas,
-                    mapViewState,
+                    renderParams,
                     temp
                 );
             }
@@ -776,7 +798,7 @@ export class TextElementsRenderer {
                     groupState,
                     screenPoints!,
                     textCanvas,
-                    mapViewState,
+                    renderParams,
                     temp
                 );
             }
@@ -822,7 +844,7 @@ export class TextElementsRenderer {
             const fontCatalogPromise: Promise<void> = FontCatalog.load(fontCatalogConfig.url, 1024)
                 .then((loadedFontCatalog: FontCatalog) => {
                     const loadedTextCanvas = new TextCanvas({
-                        renderer: this.m_mapView.renderer,
+                        renderer: this.m_renderer,
                         fontCatalog: loadedFontCatalog,
                         minGlyphCount: this.m_options.minNumGlyphs!,
                         maxGlyphCount: this.m_options.maxNumGlyphs!
@@ -914,8 +936,10 @@ export class TextElementsRenderer {
      *
      * The actually rendered [[TextElement]]s are stored internally until the next update is done
      * to speed up rendering when no camera movement was detected.
+     * @param dataSourceTileList List of tiles to be rendered for each data source.
+     * @param projection The view's projection.
      */
-    private updateTextElements() {
+    private updateTextElements(dataSourceTileList: DataSourceTileList[], projection: Projection) {
         logger.debug("updateTextElements");
 
         if (updateStats) {
@@ -924,12 +948,11 @@ export class TextElementsRenderer {
 
         this.m_cacheInvalidated = false;
 
-        const renderList = this.m_mapView.visibleTileSet.dataSourceTileList;
+        this.checkIfOverloaded(dataSourceTileList);
 
-        this.checkIfOverloaded();
-
+        const worldMaxX = projection.worldExtent(0, 0).max.x;
         const updateStartTime =
-            this.overloaded && this.m_mapView.isDynamicFrame ? PerformanceTimer.now() : undefined;
+            this.overloaded && this.m_viewState.isDynamic ? PerformanceTimer.now() : undefined;
 
         // TODO: HARP-7648. Skip all data sources that won't contain text.
         // TODO: HARP-7651. Higher priority labels should be updated before lower priority ones
@@ -939,11 +962,12 @@ export class TextElementsRenderer {
         // be decoded yet).
         // Otherwise labels persistent when crossing a zoom level boundary will flicker (fade out
         // and back in) due to the delay in decoding the visible tiles.
-        renderList.forEach(tileList => {
+        dataSourceTileList.forEach(tileList => {
             this.updateTextElementsFromSource(
                 tileList.dataSource,
                 tileList.storageLevel,
                 tileList.visibleTiles,
+                worldMaxX,
                 updateStartTime
             );
         });
@@ -957,6 +981,7 @@ export class TextElementsRenderer {
         tileDataSource: DataSource,
         storageLevel: number,
         visibleTiles: Tile[],
+        worldMaxX: number,
         updateStartTime: number | undefined
     ) {
         if (updateStats) {
@@ -971,7 +996,7 @@ export class TextElementsRenderer {
 
         // Prepare user text elements.
         for (const tile of sortedTiles) {
-            this.prepareTextElementGroup(tile.userTextElements, tile);
+            this.prepareTextElementGroup(tile.userTextElements, tile, worldMaxX);
         }
 
         const sortedGroups: TextElementLists[] = [];
@@ -980,7 +1005,7 @@ export class TextElementsRenderer {
         let numTextElementsUpdated = 0;
 
         for (const textElementLists of sortedGroups) {
-            this.selectTextElementsToUpdateByDistance(textElementLists);
+            this.selectTextElementsToUpdateByDistance(textElementLists, worldMaxX);
 
             // The value of updateStartTime is set if this.overloaded is true.
             if (updateStartTime !== undefined) {
@@ -1008,13 +1033,14 @@ export class TextElementsRenderer {
     private prepareTextElementGroup(
         textElementGroup: TextElementGroup,
         tile: Tile,
+        worldMaxX: number,
         maxViewDistance?: number
     ) {
         if (textElementGroup.elements.length === 0) {
             return;
         }
 
-        const worldOffsetX = this.m_mapView.projection.worldExtent(0, 0).max.x * tile.offset;
+        const worldOffsetX = worldMaxX * tile.offset;
 
         const textElementSelection: TextElementFilter = (
             textElement: TextElement,
@@ -1115,7 +1141,10 @@ export class TextElementsRenderer {
         }
     }
 
-    private selectTextElementsToUpdateByDistance(textElementLists: TextElementLists) {
+    private selectTextElementsToUpdateByDistance(
+        textElementLists: TextElementLists,
+        worldMaxX: number
+    ) {
         const farDistanceLimitRatio = Math.max(
             this.m_options.maxDistanceRatioForTextLabels!,
             this.m_options.maxDistanceRatioForPoiLabels!
@@ -1126,30 +1155,21 @@ export class TextElementsRenderer {
             this.prepareTextElementGroup(
                 tileTextElements.group,
                 tileTextElements.tile,
+                worldMaxX,
                 maxViewDistance
             );
         }
     }
 
-    /**
-     * Place cached [[TextElement]]s.
-     *
-     * @param time Current time for animations.
-     * @param frameNumber Integer number incremented every frame.
-     */
-    private placeTextElements(time: number, frameNumber: number) {
-        const mapViewState: MapViewState = {
-            cameraIsMoving: this.m_mapView.cameraIsMoving,
-            maxVisibilityDist: this.m_mapView.viewRanges.maximum,
-            zoomLevel: this.m_mapView.zoomLevel,
-            frameNumber,
-            time,
+    private placeTextElements(time: number) {
+        const renderParams: RenderParams = {
             numRenderedTextElements: 0,
-            fadeAnimationRunning: false
+            fadeAnimationRunning: false,
+            time
         };
 
         const placeStartTime =
-            this.overloaded && this.m_mapView.isDynamicFrame ? PerformanceTimer.now() : undefined;
+            this.overloaded && this.m_viewState.isDynamic ? PerformanceTimer.now() : undefined;
 
         if (placementStats) {
             placementStats.clear();
@@ -1181,7 +1201,7 @@ export class TextElementsRenderer {
             if (currentPriority !== newPriority) {
                 // Place all new labels of the previous priority before placing the persistent
                 // labels of this priority.
-                this.placeNewTextElements(currentPriorityBegin, i, mapViewState);
+                this.placeNewTextElements(currentPriorityBegin, i, renderParams);
                 if (isPlacementTimeExceeded(placeStartTime)) {
                     break;
                 }
@@ -1190,7 +1210,7 @@ export class TextElementsRenderer {
             }
             this.placeTextElementGroup(
                 textElementGroupState,
-                mapViewState,
+                renderParams,
                 maxNumPlacedTextElements,
                 Pass.PersistentLabels
             );
@@ -1201,14 +1221,14 @@ export class TextElementsRenderer {
         }
 
         // Place new text elements of the last priority.
-        this.placeNewTextElements(currentPriorityBegin, groupStates.length, mapViewState);
+        this.placeNewTextElements(currentPriorityBegin, groupStates.length, renderParams);
 
         if (placementStats) {
-            placementStats.numRenderedTextElements = mapViewState.numRenderedTextElements;
+            placementStats.numRenderedTextElements = renderParams.numRenderedTextElements;
             placementStats.log();
         }
 
-        if (!this.m_options.disableFading && mapViewState.fadeAnimationRunning) {
+        if (!this.m_options.disableFading && renderParams.fadeAnimationRunning) {
             this.m_viewUpdateCallback();
         }
     }
@@ -1216,13 +1236,13 @@ export class TextElementsRenderer {
     private placeNewTextElements(
         beginGroupIndex: number,
         endGroupIndex: number,
-        mapViewState: MapViewState
+        renderParams: RenderParams
     ) {
         const groupStates = this.m_textElementStateCache.sortedGroupStates;
         for (let i = beginGroupIndex; i < endGroupIndex; ++i) {
             this.placeTextElementGroup(
                 groupStates[i],
-                mapViewState,
+                renderParams,
                 this.m_options.maxNumVisibleLabels!,
                 Pass.NewLabels
             );
@@ -1234,7 +1254,7 @@ export class TextElementsRenderer {
             return;
         }
 
-        const screenSize = this.m_mapView.renderer.getSize(this.m_tmpVector);
+        const screenSize = this.m_renderer.getSize(this.m_tmpVector);
         const screenXOrigin = -screenSize.width / 2.0;
         const screenYOrigin = screenSize.height / 2.0;
 
@@ -1367,14 +1387,18 @@ export class TextElementsRenderer {
         }
     }
 
-    private getDistanceScalingFactor(label: TextElement, distance: number): number {
+    private getDistanceScalingFactor(
+        label: TextElement,
+        distance: number,
+        lookAtDistance: number
+    ): number {
         // Distance scale is based on relation between camera focus point distance and
         // the actual label distance. For labels close to camera look at point the scale
         // remains unchanged, the farther is label from that point the smaller size it is
         // rendered in screen space. This method is unaffected by near and far clipping planes
         // distances, but may be improved by taking FOV into equation or customizing the
         // focus point screen position based on horizont, actual ground, tilt ets.
-        let factor = this.m_mapView.lookAtDistance / distance;
+        let factor = lookAtDistance / distance;
         // The label.distanceScale property defines the influence ratio at which
         // distance affects the final scaling of label.
         factor = 1.0 + (factor - 1.0) * label.distanceScale;
@@ -1416,7 +1440,7 @@ export class TextElementsRenderer {
         screenPosition: THREE.Vector2,
         poiRenderer: PoiRenderer,
         textCanvas: TextCanvas,
-        mapViewState: MapViewState,
+        renderParams: RenderParams,
         temp: TempParams
     ): boolean {
         const textRenderState: RenderState = labelState.textRenderState!;
@@ -1458,12 +1482,12 @@ export class TextElementsRenderer {
         // Scale the text depending on the label's distance to the camera.
         let textScale = 1.0;
         let distanceScaleFactor = 1.0;
-        const textDistance = this.m_mapView.worldCenter.distanceTo(position);
+        const textDistance = this.m_viewState.worldCenter.distanceTo(position);
         if (textDistance !== undefined) {
             if (
                 pointLabel.fadeFar !== undefined &&
                 (pointLabel.fadeFar <= 0.0 ||
-                    pointLabel.fadeFar * mapViewState.maxVisibilityDist < textDistance)
+                    pointLabel.fadeFar * this.m_viewState.maxVisibilityDist < textDistance)
             ) {
                 // The label is farther away than fadeFar value, which means it is totally
                 // transparent.
@@ -1474,13 +1498,17 @@ export class TextElementsRenderer {
             }
             labelState.setViewDistance(textDistance, groupState);
 
-            distanceScaleFactor = this.getDistanceScalingFactor(pointLabel, textDistance);
+            distanceScaleFactor = this.getDistanceScalingFactor(
+                pointLabel,
+                textDistance,
+                this.m_viewState.lookAtDistance
+            );
             textScale *= distanceScaleFactor;
         }
         const distanceFadeFactor = this.getDistanceFadingFactor(
             pointLabel,
             labelState,
-            mapViewState.maxVisibilityDist
+            this.m_viewState.maxVisibilityDist
         );
 
         // Check if there is need to check for screen space for the label's icon.
@@ -1492,12 +1520,12 @@ export class TextElementsRenderer {
             poiInfo !== undefined &&
             groupState.visited &&
             MathUtils.isClamped(
-                mapViewState.zoomLevel,
+                this.m_viewState.zoomLevel,
                 poiInfo.iconMinZoomLevel,
                 poiInfo.iconMaxZoomLevel
             );
 
-        if (renderIcon && poiRenderer.prepareRender(pointLabel, mapViewState.zoomLevel)) {
+        if (renderIcon && poiRenderer.prepareRender(pointLabel, this.m_viewState.zoomLevel)) {
             if (poiInfo!.isValid === false) {
                 if (placementStats) {
                     ++placementStats.numNotVisible;
@@ -1510,7 +1538,7 @@ export class TextElementsRenderer {
                 tempPoiScreenPosition,
                 distanceScaleFactor,
                 this.m_screenCollisions,
-                mapViewState.zoomLevel,
+                this.m_viewState.zoomLevel,
                 tempBox2D
             );
 
@@ -1531,21 +1559,27 @@ export class TextElementsRenderer {
                         }
                         return false;
                     } else if (!(poiInfo!.mayOverlap === true) && !iconRenderState.isFadingOut()) {
-                        iconRenderState.startFadeOut(mapViewState.frameNumber, mapViewState.time);
+                        iconRenderState.startFadeOut(
+                            this.m_viewState.frameNumber,
+                            renderParams.time
+                        );
                         if (textRenderState.isVisible()) {
                             textRenderState.startFadeOut(
-                                mapViewState.frameNumber,
-                                mapViewState.time
+                                this.m_viewState.frameNumber,
+                                renderParams.time
                             );
                         }
                     }
                 } else {
                     if (
-                        iconRenderState.lastFrameNumber < mapViewState.frameNumber - 1 ||
+                        iconRenderState.lastFrameNumber < this.m_viewState.frameNumber - 1 ||
                         iconRenderState.isFadingOut() ||
                         iconRenderState.isFadedOut()
                     ) {
-                        iconRenderState.startFadeIn(mapViewState.frameNumber, mapViewState.time);
+                        iconRenderState.startFadeIn(
+                            this.m_viewState.frameNumber,
+                            renderParams.time
+                        );
                     }
                 }
             }
@@ -1564,9 +1598,9 @@ export class TextElementsRenderer {
         // Check if label should be rendered at this zoomLevel
         const renderText =
             poiInfo === undefined ||
-            mapViewState.zoomLevel === undefined ||
+            this.m_viewState.zoomLevel === undefined ||
             MathUtils.isClamped(
-                mapViewState.zoomLevel,
+                this.m_viewState.zoomLevel,
                 poiInfo.iconMinZoomLevel,
                 poiInfo.iconMaxZoomLevel
             );
@@ -1641,7 +1675,7 @@ export class TextElementsRenderer {
                 if (
                     (textIsFadingIn ||
                         textIsFadingOut ||
-                        !mapViewState.cameraIsMoving ||
+                        !this.m_viewState.cameraIsMoving ||
                         (poiInfo === undefined || poiInfo.renderTextDuringMovements === true)) &&
                     !iconRenderState.isFadedOut()
                 ) {
@@ -1652,16 +1686,16 @@ export class TextElementsRenderer {
                         iconSpaceAvailable
                     ) {
                         textFading = textRenderState.checkStartFadeIn(
-                            mapViewState.frameNumber,
-                            mapViewState.time,
+                            this.m_viewState.frameNumber,
+                            renderParams.time,
                             true
                         );
                     } else {
                         textFading = textRenderState.isFading();
                     }
 
-                    mapViewState.fadeAnimationRunning =
-                        mapViewState.fadeAnimationRunning || textIsFadingOut || textFading;
+                    renderParams.fadeAnimationRunning =
+                        renderParams.fadeAnimationRunning || textIsFadingOut || textFading;
 
                     const opacity = textRenderState.opacity;
                     const backgroundIsVisible =
@@ -1694,15 +1728,18 @@ export class TextElementsRenderer {
                 renderIcon = false;
                 if (pointLabel.poiInfo === undefined || iconRenderState.isVisible()) {
                     if (pointLabel.poiInfo !== undefined) {
-                        iconRenderState.startFadeOut(mapViewState.frameNumber, mapViewState.time);
+                        iconRenderState.startFadeOut(
+                            this.m_viewState.frameNumber,
+                            renderParams.time
+                        );
                     }
                     if (textRenderState.isVisible()) {
                         const iconStartedFadeOut = textRenderState.checkStartFadeOut(
-                            mapViewState.frameNumber,
-                            mapViewState.time
+                            this.m_viewState.frameNumber,
+                            renderParams.time
                         );
-                        mapViewState.fadeAnimationRunning =
-                            mapViewState.fadeAnimationRunning || iconStartedFadeOut;
+                        renderParams.fadeAnimationRunning =
+                            renderParams.fadeAnimationRunning || iconStartedFadeOut;
                     }
                 } else {
                     if (placementStats) {
@@ -1714,21 +1751,21 @@ export class TextElementsRenderer {
             // If the label is currently visible, fade it out.
             else if (textRenderState.isVisible()) {
                 const iconStartedFadeOut = textRenderState.checkStartFadeOut(
-                    mapViewState.frameNumber,
-                    mapViewState.time
+                    this.m_viewState.frameNumber,
+                    renderParams.time
                 );
-                mapViewState.fadeAnimationRunning =
-                    mapViewState.fadeAnimationRunning || iconStartedFadeOut;
+                renderParams.fadeAnimationRunning =
+                    renderParams.fadeAnimationRunning || iconStartedFadeOut;
             }
         }
         // ... and render the icon (if any).
         if (renderIcon && poiRenderer.poiIsRenderable(poiInfo!)) {
             const iconStartedFadeIn = iconRenderState.checkStartFadeIn(
-                mapViewState.frameNumber,
-                mapViewState.time
+                this.m_viewState.frameNumber,
+                renderParams.time
             );
-            mapViewState.fadeAnimationRunning =
-                mapViewState.fadeAnimationRunning || iconStartedFadeIn;
+            renderParams.fadeAnimationRunning =
+                renderParams.fadeAnimationRunning || iconStartedFadeIn;
 
             poiRenderer.renderPoi(
                 poiInfo!,
@@ -1738,16 +1775,16 @@ export class TextElementsRenderer {
                 distanceScaleFactor,
                 poiInfo!.reserveSpace !== false,
                 iconRenderState.opacity * distanceFadeFactor,
-                mapViewState.zoomLevel
+                this.m_viewState.zoomLevel
             );
 
-            iconRenderState.lastFrameNumber = mapViewState.frameNumber;
+            iconRenderState.lastFrameNumber = this.m_viewState.frameNumber;
 
             if (placementStats) {
                 placementStats.numRenderedPoiIcons++;
             }
         }
-        mapViewState.numRenderedTextElements++;
+        renderParams.numRenderedTextElements++;
         return true;
     }
 
@@ -1756,7 +1793,7 @@ export class TextElementsRenderer {
         groupState: TextElementGroupState,
         poiRenderer: PoiRenderer,
         textCanvas: TextCanvas,
-        mapViewState: MapViewState,
+        renderParams: RenderParams,
         temp: TempParams
     ): boolean {
         const poiLabel = labelState.element;
@@ -1777,7 +1814,7 @@ export class TextElementsRenderer {
             tempScreenPosition,
             poiRenderer,
             textCanvas,
-            mapViewState,
+            renderParams,
             temp
         );
     }
@@ -1788,7 +1825,7 @@ export class TextElementsRenderer {
         poiRenderer: PoiRenderer,
         shieldGroups: number[][],
         textCanvas: TextCanvas,
-        mapViewState: MapViewState,
+        renderParams: RenderParams,
         temp: TempParams
     ): void {
         const lineMarkerLabel = labelState.element;
@@ -1798,7 +1835,7 @@ export class TextElementsRenderer {
         if (
             lineMarkerLabel.path === undefined ||
             lineMarkerLabel.path.length === 0 ||
-            !poiRenderer.prepareRender(lineMarkerLabel, mapViewState.zoomLevel)
+            !poiRenderer.prepareRender(lineMarkerLabel, this.m_viewState.zoomLevel)
         ) {
             return;
         }
@@ -1856,7 +1893,7 @@ export class TextElementsRenderer {
                                 tempScreenPosition,
                                 poiRenderer,
                                 textCanvas,
-                                mapViewState,
+                                renderParams,
                                 temp
                             )
                         ) {
@@ -1884,7 +1921,7 @@ export class TextElementsRenderer {
                         tempScreenPosition,
                         poiRenderer,
                         textCanvas,
-                        mapViewState,
+                        renderParams,
                         temp
                     );
                 }
@@ -1897,7 +1934,7 @@ export class TextElementsRenderer {
         groupState: TextElementGroupState,
         screenPoints: THREE.Vector2[],
         textCanvas: TextCanvas,
-        mapViewState: MapViewState,
+        renderParams: RenderParams,
         temp: TempParams
     ): boolean {
         // TODO: HARP-7649. Add fade out transitions for path labels.
@@ -1925,7 +1962,7 @@ export class TextElementsRenderer {
         if (
             pathLabel.fadeFar !== undefined &&
             (pathLabel.fadeFar <= 0.0 ||
-                pathLabel.fadeFar * mapViewState.maxVisibilityDist < labelState.renderDistance)
+                pathLabel.fadeFar * this.m_viewState.maxVisibilityDist < labelState.renderDistance)
         ) {
             // The label is farther away than fadeFar value, which means it is totally
             // transparent
@@ -1963,13 +2000,17 @@ export class TextElementsRenderer {
 
         // Update the real rendering distance to have smooth fading and scaling
         labelState.setViewDistance(
-            computeViewDistance(this.m_mapView.worldCenter, pathLabel),
+            computeViewDistance(this.m_viewState.worldCenter, pathLabel),
             groupState
         );
         const textRenderDistance = -labelState.renderDistance;
 
         // Scale the text depending on the label's distance to the camera.
-        const distanceScaleFactor = this.getDistanceScalingFactor(pathLabel, textRenderDistance);
+        const distanceScaleFactor = this.getDistanceScalingFactor(
+            pathLabel,
+            textRenderDistance,
+            this.m_viewState.lookAtDistance
+        );
         textScale *= distanceScaleFactor;
 
         // Scale the path label correctly.
@@ -2018,16 +2059,19 @@ export class TextElementsRenderer {
         // NOTE: Shouldn't this only happen once we know the label is gonna be visible?
         if (
             labelState.textRenderState!.state === FadingState.Undefined ||
-            labelState.textRenderState!.lastFrameNumber < mapViewState.frameNumber - 1
+            labelState.textRenderState!.lastFrameNumber < this.m_viewState.frameNumber - 1
         ) {
-            labelState.textRenderState!.startFadeIn(mapViewState.frameNumber, mapViewState.time);
+            labelState.textRenderState!.startFadeIn(
+                this.m_viewState.frameNumber,
+                renderParams.time
+            );
         }
         const startedFadeIn = labelState.textRenderState!.checkStartFadeIn(
-            mapViewState.frameNumber,
-            mapViewState.time
+            this.m_viewState.frameNumber,
+            renderParams.time
         );
 
-        mapViewState.fadeAnimationRunning = mapViewState.fadeAnimationRunning || startedFadeIn;
+        renderParams.fadeAnimationRunning = renderParams.fadeAnimationRunning || startedFadeIn;
         if (labelState.textRenderState!.isFading()) {
             opacity = labelState.textRenderState!.opacity * pathLabel.renderStyle!.opacity;
         }
@@ -2037,7 +2081,7 @@ export class TextElementsRenderer {
         const distanceFadeFactor = this.getDistanceFadingFactor(
             pathLabel,
             labelState,
-            mapViewState.maxVisibilityDist
+            this.m_viewState.maxVisibilityDist
         );
         textCanvas.textRenderStyle.opacity = opacity * distanceFadeFactor;
         textCanvas.textRenderStyle.backgroundOpacity =
@@ -2060,7 +2104,7 @@ export class TextElementsRenderer {
             this.m_screenCollisions.allocate(tempBox2D);
         }
 
-        mapViewState.numRenderedTextElements++;
+        renderParams.numRenderedTextElements++;
 
         // Restore previous style values for text elements using the same style.
         textCanvas.textRenderStyle.fontSize.size = prevSize;
@@ -2135,14 +2179,12 @@ export class TextElementsRenderer {
         return screenPoints;
     }
 
-    private checkIfOverloaded(): boolean {
-        const renderList = this.m_mapView.visibleTileSet.dataSourceTileList;
-
+    private checkIfOverloaded(dataSourceTileList: DataSourceTileList[]): boolean {
         // Count the number of TextElements in the scene to see if we have to switch to
         // "overloadMode".
         let numTextElementsInScene = 0;
 
-        renderList.forEach(renderListEntry => {
+        dataSourceTileList.forEach(renderListEntry => {
             for (const tile of renderListEntry.renderedTiles.values()) {
                 numTextElementsInScene += tile.textElementGroups.count();
                 numTextElementsInScene += tile.userTextElements.elements.length;
