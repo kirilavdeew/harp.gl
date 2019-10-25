@@ -47,15 +47,17 @@ import { MapViewImageCache } from "./image/MapViewImageCache";
 import { MapViewFog } from "./MapViewFog";
 import { PickHandler, PickResult } from "./PickHandler";
 import { PoiManager } from "./poi/PoiManager";
+import { PoiRendererFactory } from "./poi/PoiRendererFactory";
 import { PoiTableManager } from "./poi/PoiTableManager";
 import { PolarTileDataSource } from "./PolarTileDataSource";
 import { ScreenCollisions, ScreenCollisionsDebug } from "./ScreenCollisions";
 import { ScreenProjector } from "./ScreenProjector";
 import { SkyBackground } from "./SkyBackground";
 import { FrameStats, PerformanceStatistics } from "./Statistics";
+import { MapViewState } from "./text/MapViewState";
+import { TextCanvasFactory } from "./text/TextCanvasFactory";
 import { TextElement } from "./text/TextElement";
 import { TextElementsRenderer, ViewUpdateCallback } from "./text/TextElementsRenderer";
-import { MapViewState } from "./text/MapViewState";
 import { TextElementsRendererOptions } from "./text/TextElementsRendererOptions";
 import { createLight } from "./ThemeHelpers";
 import { ThemeLoader } from "./ThemeLoader";
@@ -3099,14 +3101,14 @@ export class MapView extends THREE.EventDispatcher {
         };
 
         return new TextElementsRenderer(
-            this,
             new MapViewState(this),
             this.m_camera,
             updateCallback,
-            this.renderer,
-            this.m_poiManager,
             this.m_screenCollisions,
             this.m_screenProjector,
+            new TextCanvasFactory(this.m_renderer),
+            this.m_poiManager,
+            new PoiRendererFactory(this),
             this.m_theme,
             this.m_options
         );
