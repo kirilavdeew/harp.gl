@@ -685,18 +685,6 @@ export class TileGeometryCreator {
                     const lineMaterial = material as THREE.RawShaderMaterial;
                     lineMaterial.uniforms.opacity.value = material.opacity;
 
-                    if (
-                        technique.clipping !== false &&
-                        tile.projection.type === ProjectionType.Planar
-                    ) {
-                        const tileSize = lineMaterial.uniforms.tileSize;
-                        const size = new THREE.Vector3();
-                        tile.boundingBox.getSize(size);
-                        tileSize.value.x = size.x;
-                        tileSize.value.y = size.y;
-                        lineMaterial.defines.TILE_CLIP = 1;
-                    }
-
                     if (bufferGeometry.getAttribute("color")) {
                         lineMaterial.defines.USE_COLOR = 1;
                     }
