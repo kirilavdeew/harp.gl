@@ -161,8 +161,6 @@ export function checkReadyForPlacement(
             tile.center.y,
             tile.center.z
         );
-    } else {
-        textElement.tileCenter.set(tile.center.x + worldOffsetX, tile.center.y, tile.center.z);
     }
 
     viewDistance =
