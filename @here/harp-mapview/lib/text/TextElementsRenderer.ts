@@ -1523,20 +1523,17 @@ export class TextElementsRenderer {
                 return false;
             }
 
-            const iconIsVisible = poiRenderer.computeScreenBox(
-                poiInfo!,
-                tempPoiScreenPosition,
-                distanceScaleFactor,
-                this.m_screenCollisions,
-                this.m_viewState.zoomLevel,
-                tempBox2D
-            );
+            const iconIsVisible =
+                poiRenderer.computeIconScreenBox(
+                    poiInfo!,
+                    tempPoiScreenPosition,
+                    distanceScaleFactor,
+                    this.m_viewState.zoomLevel,
+                    tempBox2D
+                ) && this.m_screenCollisions.isVisible(tempBox2D);
 
             if (iconIsVisible) {
-                iconSpaceAvailable = poiRenderer.isSpaceAvailable(
-                    this.m_screenCollisions,
-                    tempBox2D
-                );
+                iconSpaceAvailable = !this.m_screenCollisions.isAllocated(tempBox2D);
 
                 // Reserve screen space if necessary, return false if failed:
                 if (
