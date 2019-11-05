@@ -6,7 +6,7 @@
 
 import { GeoCoordinates, mercatorProjection, sphereProjection } from "@here/harp-geoutils";
 import { CopyrightElementHandler, MapView, MapViewEventNames } from "@here/harp-mapview";
-import { APIFormat, OmvDataSource } from "@here/harp-omv-datasource";
+import { APIFormat, VectorTileDataSource } from "@here/harp-vectortile-datasource";
 import { GUI } from "dat.gui";
 import { accessToken, copyrightInfo } from "../config";
 
@@ -67,7 +67,7 @@ export namespace CameraOrbitExample {
             mapView.resize(window.innerWidth, window.innerHeight);
         });
 
-        const omvDataSource = new OmvDataSource({
+        const mapSource = new VectorTileDataSource({
             baseUrl: "https://xyz.api.here.com/tiles/herebase.02",
             apiFormat: APIFormat.XYZOMV,
             styleSetName: "tilezen",
@@ -75,7 +75,7 @@ export namespace CameraOrbitExample {
             authenticationCode: accessToken,
             copyrightInfo
         });
-        mapView.addDataSource(omvDataSource);
+        mapView.addDataSource(mapSource);
 
         return mapView;
     }
