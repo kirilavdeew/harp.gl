@@ -457,13 +457,13 @@ const textTechniqueDescriptor = mergeTechniqueDescriptor<TextTechnique>(
             wrappingMode: AttrScope.TechniqueGeometry,
             hAlignment: AttrScope.TechniqueGeometry,
             vAlignment: AttrScope.TechniqueGeometry,
-            backgroundColor: AttrScope.TechniqueRendering,
-            backgroundSize: AttrScope.TechniqueRendering,
-            backgroundOpacity: AttrScope.TechniqueRendering,
-            color: AttrScope.TechniqueRendering,
-            opacity: AttrScope.TechniqueRendering,
-            priority: AttrScope.TechniqueRendering,
-            size: AttrScope.TechniqueRendering
+            backgroundColor: AttrScope.TechniqueGeometry,
+            backgroundSize: AttrScope.TechniqueGeometry,
+            backgroundOpacity: AttrScope.TechniqueGeometry,
+            color: AttrScope.TechniqueGeometry,
+            opacity: AttrScope.TechniqueGeometry,
+            priority: AttrScope.TechniqueGeometry,
+            size: AttrScope.TechniqueGeometry
         }
     }
 );
