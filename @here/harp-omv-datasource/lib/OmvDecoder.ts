@@ -169,7 +169,7 @@ export class OmvDecoder implements IGeometryProcessor {
         private readonly m_storageLevelOffset = 0,
         private readonly m_enableElevationOverlay = false,
         private readonly m_languages?: string[],
-        private readonly m_tileUtils: OmvUtils = new OmvUtils(),
+        private readonly m_tileUtils: IOmvTileUtils = new OmvUtils(),
     ) {
         const styleSetDataFilter = new StyleSetDataFilter(m_styleSetEvaluator);
         const dataPreFilter = m_dataFilter
@@ -221,6 +221,7 @@ export class OmvDecoder implements IGeometryProcessor {
             this.m_gatherFeatureIds,
             this.m_skipShortLabels,
             this.m_enableElevationOverlay,
+            this.m_tileUtils,
             this.m_languages,
         );
         if (this.m_createTileInfo) {
@@ -229,7 +230,8 @@ export class OmvDecoder implements IGeometryProcessor {
                 decodeInfo,
                 this.m_styleSetEvaluator,
                 storeExtendedTags,
-                this.m_gatherRoadSegments
+                this.m_gatherRoadSegments,
+                this.m_tileUtils
             );
         }
 
@@ -268,7 +270,8 @@ export class OmvDecoder implements IGeometryProcessor {
             decodeInfo,
             this.m_styleSetEvaluator,
             storeExtendedTags,
-            this.m_gatherRoadSegments
+            this.m_gatherRoadSegments,
+            this.m_tileUtils
         );
 
         for (const adapter of this.m_dataAdapters.values()) {
