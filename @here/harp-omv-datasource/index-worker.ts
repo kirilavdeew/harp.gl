@@ -8,3 +8,4 @@ export * from "./lib/OmvDecoder";
 export * from "./lib/OmvTiler";
 export * from "./lib/OmvDecoderDefs";
 export * from './lib/OmvUtils';
+export * from './lib/IOmvTileUtils';
