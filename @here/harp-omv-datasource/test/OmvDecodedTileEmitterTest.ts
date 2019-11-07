@@ -26,7 +26,7 @@ import { Vector2, Vector3 } from "three";
 import { IPolygonGeometry } from "../lib/IGeometryProcessor";
 import { OmvDecodedTileEmitter } from "../lib/OmvDecodedTileEmitter";
 import { OmvDecoder } from "../lib/OmvDecoder";
-import { world2tile } from "../lib/OmvUtils";
+import { OmvUtils, world2tile } from '../lib/OmvUtils';
 
 class OmvDecodedTileEmitterTest extends OmvDecodedTileEmitter {
     splitJaggyLinesTest(
@@ -60,13 +60,15 @@ describe("OmvDecodedTileEmitter", function() {
         ];
 
         const styleSetEvaluator = new StyleSetEvaluator(styleSet);
+        const omvUtils = new OmvUtils();
 
         const tileEmitter = new OmvDecodedTileEmitterTest(
             decodeInfo,
             styleSetEvaluator,
             false,
             false,
-            false
+            false,
+            omvUtils,
         );
 
         return { tileEmitter, styleSetEvaluator };
