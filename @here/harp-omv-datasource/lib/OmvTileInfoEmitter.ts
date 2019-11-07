@@ -16,7 +16,7 @@ import * as THREE from "three";
 import { AttrEvaluationContext } from "@here/harp-datasource-protocol/lib/TechniqueAttr";
 import { ILineGeometry, IPolygonGeometry } from "./IGeometryProcessor";
 import { IOmvEmitter, OmvDecoder, Ring } from "./OmvDecoder";
-import { webMercatorTile2TargetWorld } from "./OmvUtils";
+import { OmvUtils } from './OmvUtils';
 
 export class OmvTileInfoEmitter implements IOmvEmitter {
     private readonly m_tileInfo: ExtendedTileInfo;
@@ -36,7 +36,8 @@ export class OmvTileInfoEmitter implements IOmvEmitter {
         private readonly m_styleSetEvaluator: StyleSetEvaluator,
         private readonly m_storeExtendedTags: boolean,
         private readonly m_gatherRoadSegments: boolean,
-        private readonly m_languages?: string[]
+        private readonly m_languages?: string[],
+        private readonly m_tileUtils: OmvUtils = new OmvUtils()
     ) {
         this.m_tileInfo = new ExtendedTileInfo(m_decodeInfo.tileKey, this.m_storeExtendedTags);
         this.m_tileInfoWriter = new ExtendedTileInfoWriter(
@@ -68,7 +69,7 @@ export class OmvTileInfoEmitter implements IOmvEmitter {
                 this.m_languages
             );
             for (const pos of geometry) {
-                webMercatorTile2TargetWorld(extents, this.m_decodeInfo, pos, tmpV);
+                this.m_tileUtils.webMercatorTile2TargetWorld(extents, this.m_decodeInfo, pos, tmpV);
                 tileInfoWriter.addFeature(
                     this.m_tileInfo.pointGroup,
                     context.env,
@@ -100,7 +101,7 @@ export class OmvTileInfoEmitter implements IOmvEmitter {
         for (const polyline of geometry) {
             const line: number[] = [];
             for (const pos of polyline.positions) {
-                webMercatorTile2TargetWorld(extents, this.m_decodeInfo, pos, tmpV);
+                this.m_tileUtils.webMercatorTile2TargetWorld(extents, this.m_decodeInfo, pos, tmpV);
                 line.push(tmpV.x, tmpV.y);
             }
             lines.push(line);
@@ -171,7 +172,7 @@ export class OmvTileInfoEmitter implements IOmvEmitter {
             for (const outline of polygon.rings) {
                 const contour: number[] = [];
                 for (const pos of outline) {
-                    webMercatorTile2TargetWorld(extents, this.m_decodeInfo, pos, tmpV);
+                    this.m_tileUtils.webMercatorTile2TargetWorld(extents, this.m_decodeInfo, pos, tmpV);
                     contour.push(tmpV.x, tmpV.y, tmpV.z);
                 }
                 rings.push(new Ring(extents, 3, contour));

@@ -51,9 +51,10 @@ import {
 } from "./OmvDecoderDefs";
 import { OmvTileInfoEmitter } from "./OmvTileInfoEmitter";
 import { OmvTomTomFeatureModifier } from "./OmvTomTomFeatureModifier";
-import { WorldTileProjectionCookie } from "./OmvUtils";
+import { OmvUtils, WorldTileProjectionCookie } from './OmvUtils';
 import { StyleSetDataFilter } from "./StyleSetDataFilter";
 import { VTJsonDataAdapter } from "./VTJsonDataAdapter";
+import { IOmvTileUtils } from './IOmvTileUtils';
 
 const logger = LoggerManager.instance.create("OmvDecoder", { enabled: false });
 
@@ -167,7 +168,8 @@ export class OmvDecoder implements IGeometryProcessor {
         private readonly m_skipShortLabels = true,
         private readonly m_storageLevelOffset = 0,
         private readonly m_enableElevationOverlay = false,
-        private readonly m_languages?: string[]
+        private readonly m_languages?: string[],
+        private readonly m_tileUtils: OmvUtils = new OmvUtils(),
     ) {
         const styleSetDataFilter = new StyleSetDataFilter(m_styleSetEvaluator);
         const dataPreFilter = m_dataFilter
@@ -219,7 +221,7 @@ export class OmvDecoder implements IGeometryProcessor {
             this.m_gatherFeatureIds,
             this.m_skipShortLabels,
             this.m_enableElevationOverlay,
-            this.m_languages
+            this.m_languages,
         );
         if (this.m_createTileInfo) {
             const storeExtendedTags = true;
