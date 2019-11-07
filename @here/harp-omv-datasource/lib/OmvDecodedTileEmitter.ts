@@ -69,6 +69,7 @@ import {
 } from "@here/harp-datasource-protocol/lib/TechniqueAttr";
 // tslint:disable-next-line:max-line-length
 import { SphericalGeometrySubdivisionModifier } from "@here/harp-geometry/lib/SphericalGeometrySubdivisionModifier";
+import { IOmvTileUtils } from './IOmvTileUtils';
 
 const logger = LoggerManager.instance.create("OmvDecodedTileEmitter");
 
@@ -204,8 +205,8 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
         private readonly m_gatherFeatureIds: boolean,
         private readonly m_skipShortLabels: boolean,
         private readonly m_enableElevationOverlay: boolean,
+        private readonly m_tileUtils: IOmvTileUtils,
         private readonly m_languages?: string[],
-        private readonly m_tileUtils: OmvUtils = new OmvUtils(),
     ) {}
 
     get projection() {

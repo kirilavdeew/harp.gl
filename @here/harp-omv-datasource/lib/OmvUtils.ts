@@ -94,13 +94,13 @@ export function world2tile(
 
 const tempWorldPos = new THREE.Vector2();
 
-export class OmvUtils {
+export class OmvUtils implements IOmvTileUtils {
     tile2world(
       extents: number,
       decodeInfo: OmvDecoder.DecodeInfo,
       position: THREE.Vector2,
-      target: THREE.Vector2,
-      flipY: boolean = false
+      flipY: boolean = false,
+      target: THREE.Vector2
     ): THREE.Vector2 {
         if (
           decodeInfo.worldTileProjectionCookie === undefined ||

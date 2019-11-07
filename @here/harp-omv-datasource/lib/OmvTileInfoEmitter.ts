@@ -16,7 +16,7 @@ import * as THREE from "three";
 import { AttrEvaluationContext } from "@here/harp-datasource-protocol/lib/TechniqueAttr";
 import { ILineGeometry, IPolygonGeometry } from "./IGeometryProcessor";
 import { IOmvEmitter, OmvDecoder, Ring } from "./OmvDecoder";
-import { OmvUtils } from './OmvUtils';
+import { IOmvTileUtils } from './IOmvTileUtils';
 
 export class OmvTileInfoEmitter implements IOmvEmitter {
     private readonly m_tileInfo: ExtendedTileInfo;
@@ -29,6 +29,8 @@ export class OmvTileInfoEmitter implements IOmvEmitter {
      * @param m_styleSetEvaluator
      * @param m_storeExtendedTags
      * @param m_gatherRoadSegments
+     * @param m_tileUtils
+     * @param m_languages
      */
     constructor(
         private readonly m_decodeInfo: OmvDecoder.DecodeInfo,
@@ -36,8 +38,8 @@ export class OmvTileInfoEmitter implements IOmvEmitter {
         private readonly m_styleSetEvaluator: StyleSetEvaluator,
         private readonly m_storeExtendedTags: boolean,
         private readonly m_gatherRoadSegments: boolean,
+        private readonly m_tileUtils: IOmvTileUtils,
         private readonly m_languages?: string[],
-        private readonly m_tileUtils: OmvUtils = new OmvUtils()
     ) {
         this.m_tileInfo = new ExtendedTileInfo(m_decodeInfo.tileKey, this.m_storeExtendedTags);
         this.m_tileInfoWriter = new ExtendedTileInfoWriter(
