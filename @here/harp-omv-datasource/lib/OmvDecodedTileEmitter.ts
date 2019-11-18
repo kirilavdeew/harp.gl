@@ -1089,7 +1089,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                     // Invert the Y component to preserve the correct winding without transforming
                     // from webMercator's local to global space.
                     for (let j = 0; j < featureStride; ++j) {
-                        vertices.push((j === 1 ? -1 : 1) * contour[i * featureStride + j]);
+                        vertices.push((j === 1 ? 1 : 1) * contour[i * featureStride + j]);
                     }
 
                     // Calculate nextEdge and nextWall.
@@ -1123,7 +1123,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                         // Invert the Y component to preserve the correct winding without
                         // transforming from webMercator's local to global space.
                         for (let j = 0; j < featureStride; ++j) {
-                            vertices.push((j === 1 ? -1 : 1) * hole[i * featureStride + j]);
+                            vertices.push((j === 1 ? 1 : 1) * hole[i * featureStride + j]);
                         }
 
                         // Calculate nextEdge and nextWall.
