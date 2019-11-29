@@ -16,13 +16,13 @@ import {
 } from "@here/harp-datasource-protocol";
 import { MapEnv, StyleSetEvaluator } from "@here/harp-datasource-protocol/index-decoder";
 import {
-    GeoBox,
+    GeoBox, normalizedEquirectangularProjection,
     OrientedBox3,
     Projection,
     TileKey,
     TilingScheme,
     webMercatorTilingScheme
-} from "@here/harp-geoutils";
+} from '@here/harp-geoutils';
 import {
     ThemedTileDecoder,
     TileDecoderService,
@@ -57,6 +57,32 @@ import { VTJsonDataAdapter } from "./VTJsonDataAdapter";
 import { IOmvTileUtils } from './IOmvTileUtils';
 
 const logger = LoggerManager.instance.create("OmvDecoder", { enabled: false });
+
+class HalfQuadTreeSubdivisionScheme {
+    getSubdivisionX() {
+        return 2;
+    }
+
+    getSubdivisionY(level) {
+        return level === 0 ? 1 : 2;
+    }
+
+    getLevelDimensionX(level) {
+        // tslint:disable-next-line:no-bitwise
+        return 1 << level;
+    }
+
+    getLevelDimensionY(level) {
+        // tslint:disable-next-line:no-bitwise
+        return level !== 0 ? 1 << (level - 1) : 1;
+    }
+}
+
+const monarchTilingScheme = new TilingScheme(
+  new HalfQuadTreeSubdivisionScheme(),
+  normalizedEquirectangularProjection
+);
+
 
 export class Ring {
     readonly winding: boolean;
@@ -557,7 +583,7 @@ export namespace OmvDecoder {
          * to be [[webMercatorTilingScheme]].
          */
         get tilingScheme(): TilingScheme {
-            return webMercatorTilingScheme;
+            return monarchTilingScheme;
         }
 
         /**
