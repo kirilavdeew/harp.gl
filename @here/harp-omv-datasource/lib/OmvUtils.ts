@@ -8,6 +8,7 @@ import * as THREE from "three";
 
 import { OmvDecoder } from "./OmvDecoder";
 import { VTJsonDataAdapterId } from "./VTJsonDataAdapter";
+import { IOmvTileUtils } from './IOmvTileUtils';
 
 /**
  * @hidden
@@ -37,14 +38,6 @@ export function lat2tile(
     );
 }
 
-/**
- * @hidden
- */
-export function tile2lat(y: number, level: number): number {
-    const n = Math.PI - (2 * Math.PI * y) / Math.pow(2, level);
-    return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
-}
-
 export interface WorldTileProjectionCookie {
     extents: number;
     top: number;
@@ -69,35 +62,6 @@ export function createWorldTileTransformationCookie(
         ),
         left: ((west + 180) / 360) * scale
     };
-}
-
-/**
- * @hidden
- */
-export function tile2world(
-    extents: number,
-    decodeInfo: OmvDecoder.DecodeInfo,
-    position: THREE.Vector2,
-    flipY: boolean = false,
-    target: THREE.Vector2
-): THREE.Vector2 {
-    if (
-        decodeInfo.worldTileProjectionCookie === undefined ||
-        decodeInfo.worldTileProjectionCookie.extents !== extents
-    ) {
-        decodeInfo.worldTileProjectionCookie = createWorldTileTransformationCookie(
-            extents,
-            decodeInfo
-        );
-    }
-
-    const { top, left, scale } = decodeInfo.worldTileProjectionCookie;
-    const R = EarthConstants.EQUATORIAL_CIRCUMFERENCE;
-
-    return target.set(
-        ((left + position.x) / scale) * R,
-        ((top + (flipY ? -position.y : position.y)) / scale) * R
-    );
 }
 
 /**
@@ -130,16 +94,71 @@ export function world2tile(
 
 const tempWorldPos = new THREE.Vector2();
 
-export function webMercatorTile2TargetWorld(
-    extents: number,
-    decodeInfo: OmvDecoder.DecodeInfo,
-    position: THREE.Vector2,
-    target: THREE.Vector3,
-    flipY: boolean = false
-) {
-    const worldPos = tile2world(extents, decodeInfo, position, flipY, tempWorldPos);
-    target.set(worldPos.x, worldPos.y, 0);
-    decodeInfo.targetProjection
-        .reprojectPoint(webMercatorProjection, target, target)
-        .sub(decodeInfo.center);
+export class OmvUtils implements IOmvTileUtils {
+    tile2world(
+      extents: number,
+      decodeInfo: OmvDecoder.DecodeInfo,
+      position: THREE.Vector2,
+      flipY: boolean = false,
+      target: THREE.Vector2
+    ): THREE.Vector2 {
+        if (
+          decodeInfo.worldTileProjectionCookie === undefined ||
+          decodeInfo.worldTileProjectionCookie.extents !== extents
+        ) {
+            decodeInfo.worldTileProjectionCookie = createWorldTileTransformationCookie(
+              extents,
+              decodeInfo
+            );
+        }
+
+        const { top, left, scale } = decodeInfo.worldTileProjectionCookie;
+        const R = EarthConstants.EQUATORIAL_CIRCUMFERENCE;
+
+        return target.set(
+          ((left + position.x) / scale) * R,
+          ((top + (flipY ? -position.y : position.y)) / scale) * R
+        );
+    }
+
+    world2tile(
+      extents: number,
+      decodeInfo: OmvDecoder.DecodeInfo,
+      position: THREE.Vector2,
+      flipY: boolean = false,
+      target: THREE.Vector2
+    ): THREE.Vector2 {
+        if (
+          decodeInfo.worldTileProjectionCookie === undefined ||
+          decodeInfo.worldTileProjectionCookie.extents !== extents
+        ) {
+            decodeInfo.worldTileProjectionCookie = createWorldTileTransformationCookie(
+              extents,
+              decodeInfo
+            );
+        }
+        const { top, left, scale } = decodeInfo.worldTileProjectionCookie;
+        const R = EarthConstants.EQUATORIAL_CIRCUMFERENCE;
+
+        return target.set(
+          (position.x / R) * scale - left,
+          (flipY ? -1 : 1) * ((position.y / R) * scale - top)
+        );
+    }
+
+
+    webMercatorTile2TargetWorld(
+      extents: number,
+      decodeInfo: OmvDecoder.DecodeInfo,
+      position: THREE.Vector2,
+      target: THREE.Vector3,
+      flipY: boolean = false,
+    ): void {
+        const worldPos = this.tile2world(extents, decodeInfo, position, flipY, tempWorldPos);
+        target.set(worldPos.x, worldPos.y, 0);
+        decodeInfo.targetProjection
+          .reprojectPoint(webMercatorProjection, target, target)
+          .sub(decodeInfo.center);
+    }
+
 }

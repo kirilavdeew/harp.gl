@@ -16,13 +16,13 @@ import {
 } from "@here/harp-datasource-protocol";
 import { MapEnv, StyleSetEvaluator } from "@here/harp-datasource-protocol/index-decoder";
 import {
-    GeoBox,
+    GeoBox, normalizedEquirectangularProjection,
     OrientedBox3,
     Projection,
     TileKey,
     TilingScheme,
     webMercatorTilingScheme
-} from "@here/harp-geoutils";
+} from '@here/harp-geoutils';
 import {
     ThemedTileDecoder,
     TileDecoderService,
@@ -51,11 +51,38 @@ import {
 } from "./OmvDecoderDefs";
 import { OmvTileInfoEmitter } from "./OmvTileInfoEmitter";
 import { OmvTomTomFeatureModifier } from "./OmvTomTomFeatureModifier";
-import { WorldTileProjectionCookie } from "./OmvUtils";
+import { OmvUtils, WorldTileProjectionCookie } from './OmvUtils';
 import { StyleSetDataFilter } from "./StyleSetDataFilter";
 import { VTJsonDataAdapter } from "./VTJsonDataAdapter";
+import { IOmvTileUtils } from './IOmvTileUtils';
 
 const logger = LoggerManager.instance.create("OmvDecoder", { enabled: false });
+
+class HalfQuadTreeSubdivisionScheme {
+    getSubdivisionX() {
+        return 2;
+    }
+
+    getSubdivisionY(level: number) {
+        return level === 0 ? 1 : 2;
+    }
+
+    getLevelDimensionX(level: number) {
+        // tslint:disable-next-line:no-bitwise
+        return 1 << level;
+    }
+
+    getLevelDimensionY(level: number) {
+        // tslint:disable-next-line:no-bitwise
+        return level !== 0 ? 1 << (level - 1) : 1;
+    }
+}
+
+const monarchTilingScheme = new TilingScheme(
+  new HalfQuadTreeSubdivisionScheme(),
+  normalizedEquirectangularProjection
+);
+
 
 export class Ring {
     readonly winding: boolean;
@@ -167,7 +194,8 @@ export class OmvDecoder implements IGeometryProcessor {
         private readonly m_skipShortLabels = true,
         private readonly m_storageLevelOffset = 0,
         private readonly m_enableElevationOverlay = false,
-        private readonly m_languages?: string[]
+        private readonly m_languages?: string[],
+        private readonly m_tileUtils: IOmvTileUtils = new OmvUtils(),
     ) {
         const styleSetDataFilter = new StyleSetDataFilter(m_styleSetEvaluator);
         const dataPreFilter = m_dataFilter
@@ -219,7 +247,8 @@ export class OmvDecoder implements IGeometryProcessor {
             this.m_gatherFeatureIds,
             this.m_skipShortLabels,
             this.m_enableElevationOverlay,
-            this.m_languages
+            this.m_tileUtils,
+            this.m_languages,
         );
         if (this.m_createTileInfo) {
             const storeExtendedTags = true;
@@ -227,7 +256,8 @@ export class OmvDecoder implements IGeometryProcessor {
                 decodeInfo,
                 this.m_styleSetEvaluator,
                 storeExtendedTags,
-                this.m_gatherRoadSegments
+                this.m_gatherRoadSegments,
+                this.m_tileUtils
             );
         }
 
@@ -266,7 +296,8 @@ export class OmvDecoder implements IGeometryProcessor {
             decodeInfo,
             this.m_styleSetEvaluator,
             storeExtendedTags,
-            this.m_gatherRoadSegments
+            this.m_gatherRoadSegments,
+            this.m_tileUtils
         );
 
         for (const adapter of this.m_dataAdapters.values()) {
@@ -552,7 +583,7 @@ export namespace OmvDecoder {
          * to be [[webMercatorTilingScheme]].
          */
         get tilingScheme(): TilingScheme {
-            return webMercatorTilingScheme;
+            return monarchTilingScheme;
         }
 
         /**

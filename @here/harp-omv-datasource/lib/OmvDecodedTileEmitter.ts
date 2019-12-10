@@ -61,7 +61,7 @@ import {
 import { ILineGeometry, IPolygonGeometry } from "./IGeometryProcessor";
 import { LinesGeometry } from "./OmvDataSource";
 import { IOmvEmitter, OmvDecoder, Ring } from "./OmvDecoder";
-import { tile2world, webMercatorTile2TargetWorld, world2tile } from "./OmvUtils";
+import { OmvUtils } from './OmvUtils';
 
 import {
     AttrEvaluationContext,
@@ -69,6 +69,7 @@ import {
 } from "@here/harp-datasource-protocol/lib/TechniqueAttr";
 // tslint:disable-next-line:max-line-length
 import { SphericalGeometrySubdivisionModifier } from "@here/harp-geometry/lib/SphericalGeometrySubdivisionModifier";
+import { IOmvTileUtils } from './IOmvTileUtils';
 
 const logger = LoggerManager.instance.create("OmvDecodedTileEmitter");
 
@@ -204,7 +205,8 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
         private readonly m_gatherFeatureIds: boolean,
         private readonly m_skipShortLabels: boolean,
         private readonly m_enableElevationOverlay: boolean,
-        private readonly m_languages?: string[]
+        private readonly m_tileUtils: IOmvTileUtils,
+        private readonly m_languages?: string[],
     ) {}
 
     get projection() {
@@ -290,14 +292,14 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
 
                 // Always store the position, otherwise the following POIs will be
                 // misplaced.
-                webMercatorTile2TargetWorld(extents, this.m_decodeInfo, pos, tmpV3);
+                this.m_tileUtils.webMercatorTile2TargetWorld(extents, this.m_decodeInfo, pos, tmpV3);
                 positions.push(tmpV3.x, tmpV3.y, tmpV3.z);
 
                 if (this.m_gatherFeatureIds) {
                     featureIds.push(featureId);
                     objInfos.push(env.entries);
                 }
-                if (isPoiTechnique) {
+                if (isPoiTechnique(technique)) {
                     if (imageTexture === undefined) {
                         imageTextures.push(INVALID_ARRAY_INDEX);
                     } else {
@@ -385,7 +387,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
             const lineUvs: number[] = [];
             const lineOffsets: number[] = [];
             polyline.positions.forEach(pos => {
-                webMercatorTile2TargetWorld(extents, this.m_decodeInfo, pos, tmpV3);
+                this.m_tileUtils.webMercatorTile2TargetWorld(extents, this.m_decodeInfo, pos, tmpV3);
                 line.push(tmpV3.x, tmpV3.y, tmpV3.z);
                 if (computeTexCoords) {
                     const { u, v } = computeTexCoords(pos, extents);
@@ -714,7 +716,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                                 lines.push(line);
                                 line = [];
                             } else if (isOutline && line.length === 0) {
-                                webMercatorTile2TargetWorld(
+                                this.m_tileUtils.webMercatorTile2TargetWorld(
                                     extents,
                                     this.m_decodeInfo,
                                     tmpV2.set(currX, currY),
@@ -723,7 +725,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                                 line.push(tmpV3.x, tmpV3.y, tmpV3.z);
                             }
                             if (isOutline) {
-                                webMercatorTile2TargetWorld(
+                                this.m_tileUtils.webMercatorTile2TargetWorld(
                                     extents,
                                     this.m_decodeInfo,
                                     tmpV2.set(nextX, nextY),
@@ -929,7 +931,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
               }
             : texCoordType === TextureCoordinateType.EquirectangularSpace
             ? (tilePos: THREE.Vector2, extents: number) => {
-                  const worldPos = tile2world(extents, this.m_decodeInfo, tilePos, false, tmpV2r);
+                  const worldPos = this.m_tileUtils.tile2world(extents, this.m_decodeInfo, tilePos, false, tmpV2r);
                   const { x: u, y: v } = normalizedEquirectangularProjection.reprojectPoint(
                       webMercatorProjection,
                       new THREE.Vector3(worldPos.x, worldPos.y, 0)
@@ -1137,7 +1139,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                     // Invert the Y component to preserve the correct winding without transforming
                     // from webMercator's local to global space.
                     for (let j = 0; j < featureStride; ++j) {
-                        vertices.push((j === 1 ? -1 : 1) * contour[i * featureStride + j]);
+                        vertices.push((j === 1 ? 1 : 1) * contour[i * featureStride + j]);
                     }
 
                     // Calculate nextEdge and nextWall.
@@ -1171,7 +1173,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                         // Invert the Y component to preserve the correct winding without
                         // transforming from webMercator's local to global space.
                         for (let j = 0; j < featureStride; ++j) {
-                            vertices.push((j === 1 ? -1 : 1) * hole[i * featureStride + j]);
+                            vertices.push((j === 1 ? 1 : 1) * hole[i * featureStride + j]);
                         }
 
                         // Calculate nextEdge and nextWall.
@@ -1211,7 +1213,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                         // Transform to global webMercator coordinates to be able to reproject to
                         // sphere.
                         for (let i = 0; i < vertices.length; i += vertexStride) {
-                            const worldPos = tile2world(
+                            const worldPos = this.m_tileUtils.tile2world(
                                 extents,
                                 this.m_decodeInfo,
                                 tmpV2.set(vertices[i], vertices[i + 1]),
@@ -1256,7 +1258,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                         vertices.length = 0;
                         triangles.length = 0;
                         for (let i = 0; i < posAttr.array.length; i += 3) {
-                            const tilePos = world2tile(
+                            const tilePos = this.m_tileUtils.world2tile(
                                 extents,
                                 this.m_decodeInfo,
                                 tmpV2.set(posAttr.array[i], posAttr.array[i + 1]),
@@ -1280,7 +1282,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
 
                     // Assemble the vertex buffer.
                     for (let i = 0; i < vertices.length; i += vertexStride) {
-                        webMercatorTile2TargetWorld(
+                        this.m_tileUtils.webMercatorTile2TargetWorld(
                             extents,
                             this.m_decodeInfo,
                             tmpV2.set(vertices[i], vertices[i + 1]),
