@@ -63,16 +63,16 @@ class HalfQuadTreeSubdivisionScheme {
         return 2;
     }
 
-    getSubdivisionY(level) {
+    getSubdivisionY(level: number) {
         return level === 0 ? 1 : 2;
     }
 
-    getLevelDimensionX(level) {
+    getLevelDimensionX(level: number) {
         // tslint:disable-next-line:no-bitwise
         return 1 << level;
     }
 
-    getLevelDimensionY(level) {
+    getLevelDimensionY(level: number) {
         // tslint:disable-next-line:no-bitwise
         return level !== 0 ? 1 << (level - 1) : 1;
     }
