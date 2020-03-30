@@ -24,7 +24,7 @@ import { TileInfo } from "./TileInfo";
  */
 export interface DecodedTile {
     techniques: Technique[];
-    geometries: Geometry[];
+    geometries: {[layer: string]: Geometry[]};
     pathGeometries?: PathGeometry[];
     textPathGeometries?: TextPathGeometry[];
     textGeometries?: TextGeometry[]; // ### deprecate

@@ -154,7 +154,7 @@ class MeshBuffers implements IMeshBuffers {
      */
     readonly objInfos: Array<{} | undefined> = [];
 
-    constructor(readonly type: GeometryType) {}
+    constructor(readonly type: GeometryType, readonly layer: string) {}
 
     addText(text: string) {
         let index = this.stringCatalog.indexOf(text);
@@ -179,14 +179,14 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
     // mapping from style index to mesh buffers
     private readonly m_meshBuffers = new Map<number, MeshBuffers>();
 
-    private readonly m_geometries: Geometry[] = [];
+    private readonly m_geometries: {[layer: string]: Geometry[]} = {};
     private readonly m_textGeometries: TextGeometry[] = [];
     private readonly m_textPathGeometries: TextPathGeometry[] = [];
     private readonly m_pathGeometries: PathGeometry[] = [];
     private readonly m_poiGeometries: PoiGeometry[] = [];
-    private readonly m_simpleLines: LinesGeometry[] = [];
-    private readonly m_solidLines: LinesGeometry[] = [];
-    private readonly m_dashedLines: LinesGeometry[] = [];
+    private readonly m_simpleLines: {[layer: string]: LinesGeometry[]} = {};
+    private readonly m_solidLines: {[layer: string]: LinesGeometry[]} = {};
+    private readonly m_dashedLines: {[layer: string]: LinesGeometry[]} = {};
 
     private readonly m_sources: string[] = [];
     private m_maxGeometryHeight: number = 0;
@@ -209,6 +209,21 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
         return this.m_decodeInfo.center;
     }
 
+    private initLayer(layer: string) {
+        if (!this.m_solidLines[layer]) {
+            this.m_solidLines[layer] = [];
+        }
+        if (!this.m_simpleLines[layer]) {
+            this.m_simpleLines[layer] = [];
+        }
+        if (!this.m_dashedLines[layer]) {
+            this.m_dashedLines[layer] = [];
+        }
+        if (!this.m_geometries[layer]) {
+            this.m_geometries[layer] = [];
+        }
+    }
+
     /**
      * Creates the Point of Interest geometries for the given feature.
      *
@@ -228,6 +243,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
         featureId: number | undefined
     ): void {
         const env = context.env;
+        this.initLayer(layer);
         this.processFeatureCommon(env);
 
         for (const technique of techniques) {
@@ -236,7 +252,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
             }
 
             const techniqueIndex = technique._index;
-            const meshBuffers = this.findOrCreateMeshBuffers(techniqueIndex, GeometryType.Point);
+            const meshBuffers = this.findOrCreateMeshBuffers(techniqueIndex, GeometryType.Point, layer);
 
             if (meshBuffers === undefined) {
                 continue;
@@ -322,6 +338,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
         featureId: number | undefined
     ): void {
         const env = context.env;
+        this.initLayer(layer);
         this.processFeatureCommon(env);
 
         const lines: number[][] = [];
@@ -380,10 +397,10 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                 isDashedLineTechnique(technique)
             ) {
                 const lineGeometry = isLineTechnique(technique)
-                    ? this.m_simpleLines
+                    ? this.m_simpleLines[layer]
                     : isSolidLineTechnique(technique)
-                    ? this.m_solidLines
-                    : this.m_dashedLines;
+                    ? this.m_solidLines[layer]
+                    : this.m_dashedLines[layer];
 
                 const lineType = isLineTechnique(technique) ? LineType.Simple : LineType.Complex;
 
@@ -513,7 +530,8 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
             } else if (isExtrudedLineTechnique(technique)) {
                 const meshBuffers = this.findOrCreateMeshBuffers(
                     techniqueIndex,
-                    GeometryType.ExtrudedLine
+                    GeometryType.ExtrudedLine,
+                    layer,
                 );
                 if (meshBuffers === undefined) {
                     continue;
@@ -581,6 +599,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
         techniques: IndexedTechnique[],
         featureId: number | undefined
     ): void {
+        this.initLayer(layer);
         const env = context.env;
         this.processFeatureCommon(env);
 
@@ -638,15 +657,16 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                     techniqueIndex,
                     featureId,
                     context,
-                    extents
+                    extents,
+                    layer
                 );
             } else if (isLine) {
                 const lineGeometry =
                     technique.name === "line"
-                        ? this.m_simpleLines
+                        ? this.m_simpleLines[layer]
                         : technique.name === "solid-line"
-                        ? this.m_solidLines
-                        : this.m_dashedLines;
+                        ? this.m_solidLines[layer]
+                        : this.m_dashedLines[layer];
 
                 const lineType = technique.name === "line" ? LineType.Simple : LineType.Complex;
 
@@ -730,6 +750,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
             geometries: this.m_geometries,
             decodeTime: undefined
         };
+        console.log(decodedTile);
         if (this.m_textGeometries.length > 0) {
             decodedTile.textGeometries = this.m_textGeometries;
         }
@@ -970,12 +991,13 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
         techniqueIndex: number,
         featureId: number | undefined,
         context: AttrEvaluationContext,
-        extents: number
+        extents: number,
+        layer: string,
     ): void {
         const isExtruded = isExtrudedPolygonTechnique(technique);
 
         const geometryType = isExtruded ? GeometryType.ExtrudedPolygon : GeometryType.Polygon;
-        const meshBuffers = this.findOrCreateMeshBuffers(techniqueIndex, geometryType);
+        const meshBuffers = this.findOrCreateMeshBuffers(techniqueIndex, geometryType, layer);
 
         if (meshBuffers === undefined) {
             return;
@@ -1540,79 +1562,83 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                 geometry.objInfos = meshBuffers.objInfos;
             }
 
-            this.m_geometries.push(geometry);
+            this.m_geometries[meshBuffers.layer].push(geometry);
         });
     }
 
-    private processLines(linesArray: LinesGeometry[]) {
-        linesArray.forEach(linesGeometry => {
-            const { vertices, indices } = linesGeometry.lines;
-            const renderOrderOffset = linesGeometry.renderOrderOffset;
-            const technique = linesGeometry.technique;
-            const buffer = new Float32Array(vertices).buffer as ArrayBuffer;
-            const index = new Uint32Array(indices).buffer as ArrayBuffer;
-            const attr: InterleavedBufferAttribute = {
-                type: "float",
-                stride: linesGeometry.lines.stride,
-                buffer,
-                attributes: linesGeometry.lines.vertexAttributes
-            };
-            const geometry: Geometry = {
-                type: GeometryType.SolidLine,
-                index: {
-                    buffer: index,
-                    itemCount: 1,
-                    type: "uint32",
-                    name: "index"
-                },
-                interleavedVertexAttributes: [attr],
-                groups: [{ start: 0, count: indices.length, technique, renderOrderOffset }],
-                vertexAttributes: []
-            };
+    private processLines(lines: {[layer: string]: LinesGeometry[]}) {
+        for (const layer in lines) {
+            lines[layer].forEach(linesGeometry => {
+                const { vertices, indices } = linesGeometry.lines;
+                const renderOrderOffset = linesGeometry.renderOrderOffset;
+                const technique = linesGeometry.technique;
+                const buffer = new Float32Array(vertices).buffer as ArrayBuffer;
+                const index = new Uint32Array(indices).buffer as ArrayBuffer;
+                const attr: InterleavedBufferAttribute = {
+                    type: "float",
+                    stride: linesGeometry.lines.stride,
+                    buffer,
+                    attributes: linesGeometry.lines.vertexAttributes
+                };
+                const geometry: Geometry = {
+                    type: GeometryType.SolidLine,
+                    index: {
+                        buffer: index,
+                        itemCount: 1,
+                        type: "uint32",
+                        name: "index"
+                    },
+                    interleavedVertexAttributes: [attr],
+                    groups: [{ start: 0, count: indices.length, technique, renderOrderOffset }],
+                    vertexAttributes: []
+                };
 
-            if (this.m_gatherFeatureIds) {
-                geometry.featureIds = linesGeometry.featureIds;
-                geometry.featureStarts = linesGeometry.featureStarts;
-            }
+                if (this.m_gatherFeatureIds) {
+                    geometry.featureIds = linesGeometry.featureIds;
+                    geometry.featureStarts = linesGeometry.featureStarts;
+                }
 
-            this.m_geometries.push(geometry);
-        });
+                this.m_geometries[layer].push(geometry);
+            });
+        }
     }
 
-    private processSimpleLines(linesArray: LinesGeometry[]) {
-        linesArray.forEach(linesGeometry => {
-            const { vertices, indices } = linesGeometry.lines;
-            const renderOrderOffset = linesGeometry.renderOrderOffset;
-            const technique = linesGeometry.technique;
-            const buffer = new Float32Array(vertices).buffer as ArrayBuffer;
-            const index = new Uint32Array(indices).buffer as ArrayBuffer;
-            const attr: BufferAttribute = {
-                buffer,
-                itemCount: 3,
-                type: "float",
-                name: "position"
-            };
-            const geometry: Geometry = {
-                type: GeometryType.Line,
-                index: {
-                    buffer: index,
-                    itemCount: 1,
-                    type: "uint32",
-                    name: "index"
-                },
-                vertexAttributes: [attr],
-                groups: [{ start: 0, count: indices.length, technique, renderOrderOffset }]
-            };
+    private processSimpleLines(lines: {[layer: string]: LinesGeometry[]}) {
+        for (const layer in lines) {
+            lines[layer].forEach(linesGeometry => {
+                const { vertices, indices } = linesGeometry.lines;
+                const renderOrderOffset = linesGeometry.renderOrderOffset;
+                const technique = linesGeometry.technique;
+                const buffer = new Float32Array(vertices).buffer as ArrayBuffer;
+                const index = new Uint32Array(indices).buffer as ArrayBuffer;
+                const attr: BufferAttribute = {
+                    buffer,
+                    itemCount: 3,
+                    type: "float",
+                    name: "position"
+                };
+                const geometry: Geometry = {
+                    type: GeometryType.Line,
+                    index: {
+                        buffer: index,
+                        itemCount: 1,
+                        type: "uint32",
+                        name: "index"
+                    },
+                    vertexAttributes: [attr],
+                    groups: [{ start: 0, count: indices.length, technique, renderOrderOffset }]
+                };
 
-            if (this.m_gatherFeatureIds) {
-                geometry.featureIds = linesGeometry.featureIds;
-                geometry.featureStarts = linesGeometry.featureStarts;
-            }
-            this.m_geometries.push(geometry);
-        });
+                if (this.m_gatherFeatureIds) {
+                    geometry.featureIds = linesGeometry.featureIds;
+                    geometry.featureStarts = linesGeometry.featureStarts;
+                }
+                this.m_geometries[layer].push(geometry);
+            });
+        }
     }
 
-    private findOrCreateMeshBuffers(index: number, type: GeometryType): MeshBuffers | undefined {
+    private findOrCreateMeshBuffers(index: number, type: GeometryType, layer: string): MeshBuffers | undefined {
         let buffers = this.m_meshBuffers.get(index);
 
         if (buffers !== undefined) {
@@ -1623,7 +1649,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
             }
             return buffers;
         }
-        buffers = new MeshBuffers(type);
+        buffers = new MeshBuffers(type, layer);
         this.m_meshBuffers.set(index, buffers);
         return buffers;
     }
