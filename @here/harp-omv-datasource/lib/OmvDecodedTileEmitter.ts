@@ -179,7 +179,7 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
     // mapping from style index to mesh buffers
     private readonly m_meshBuffers = new Map<number, MeshBuffers>();
 
-    private readonly m_geometries: {[layer: string]: Geometry[]} = {};
+    private readonly m_geometries: Geometry[] = [];
     private readonly m_textGeometries: TextGeometry[] = [];
     private readonly m_textPathGeometries: TextPathGeometry[] = [];
     private readonly m_pathGeometries: PathGeometry[] = [];
@@ -218,9 +218,6 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
         }
         if (!this.m_dashedLines[layer]) {
             this.m_dashedLines[layer] = [];
-        }
-        if (!this.m_geometries[layer]) {
-            this.m_geometries[layer] = [];
         }
     }
 
@@ -750,7 +747,6 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
             geometries: this.m_geometries,
             decodeTime: undefined
         };
-        console.log(decodedTile);
         if (this.m_textGeometries.length > 0) {
             decodedTile.textGeometries = this.m_textGeometries;
         }
@@ -1561,8 +1557,8 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                 geometry.featureStarts = meshBuffers.featureStarts;
                 geometry.objInfos = meshBuffers.objInfos;
             }
-
-            this.m_geometries[meshBuffers.layer].push(geometry);
+            geometry.layer = meshBuffers.layer;
+            this.m_geometries.push(geometry);
         });
     }
 
@@ -1597,8 +1593,8 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                     geometry.featureIds = linesGeometry.featureIds;
                     geometry.featureStarts = linesGeometry.featureStarts;
                 }
-
-                this.m_geometries[layer].push(geometry);
+                geometry.layer = layer;
+                this.m_geometries.push(geometry);
             });
         }
     }
@@ -1633,7 +1629,8 @@ export class OmvDecodedTileEmitter implements IOmvEmitter {
                     geometry.featureIds = linesGeometry.featureIds;
                     geometry.featureStarts = linesGeometry.featureStarts;
                 }
-                this.m_geometries[layer].push(geometry);
+                geometry.layer = layer;
+                this.m_geometries.push(geometry);
             });
         }
     }

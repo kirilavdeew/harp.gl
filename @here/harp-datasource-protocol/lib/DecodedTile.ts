@@ -131,6 +131,7 @@ export enum GeometryType {
  * metadata for map features and objects for example roads, trees or parks.
  */
 export interface Geometry {
+    layer?: string;
     type: GeometryType;
     vertexAttributes: BufferAttribute[];
     interleavedVertexAttributes?: InterleavedBufferAttribute[];
